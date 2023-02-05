@@ -12,6 +12,7 @@ struct TokenizedLine {
 	String::HashType hash;
 	std::vector<SyntaxToken> tokens;
 	Uint64 state;
+	Uint64 signature;
 };
 
 class EE_API SyntaxHighlighter {
@@ -24,7 +25,7 @@ class EE_API SyntaxHighlighter {
 
 	void invalidate( Int64 lineIndex );
 
-	const std::vector<SyntaxToken>& getLine( const size_t& index );
+	const TokenizedLine& getLine( const size_t& index ) const;
 
 	Int64 getFirstInvalidLine() const;
 
@@ -36,10 +37,10 @@ class EE_API SyntaxHighlighter {
 
   protected:
 	TextDocument* mDoc;
-	std::map<size_t, TokenizedLine> mLines;
-	Int64 mFirstInvalidLine;
-	Int64 mMaxWantedLine;
-	TokenizedLine tokenizeLine( const size_t& line, const Uint64& state );
+	mutable std::map<size_t, TokenizedLine> mLines;
+	mutable Int64 mFirstInvalidLine;
+	mutable Int64 mMaxWantedLine;
+	TokenizedLine tokenizeLine( const size_t& line, const Uint64& state ) const;
 };
 
 }}} // namespace EE::UI::Doc

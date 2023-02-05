@@ -92,7 +92,7 @@ void UITextEdit::onDocumentLineChanged( const Int64& lineIndex ) {
 }
 
 void UITextEdit::drawLineText( const Int64& index, Vector2f position, const Float&, const Float& ) {
-	getLineText( index ).draw( position.x, position.y );
+	getLineText( index ).text[0].draw( position.x, position.y );
 }
 
 bool UITextEdit::applyProperty( const StyleSheetProperty& attribute ) {

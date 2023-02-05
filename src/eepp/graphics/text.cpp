@@ -272,6 +272,10 @@ String& Text::getString() {
 	return mString;
 }
 
+size_t Text::getStringLength() const {
+	return mString.size();
+}
+
 Font* Text::getFont() const {
 	return mFont;
 }
@@ -330,7 +334,7 @@ Vector2f Text::findCharacterPos( std::size_t index ) const {
 	return Vector2f( mGlyphCache[index].Left, mGlyphCache[index].Top );
 }
 
-Int32 Text::findCharacterFromPos( const Vector2i& pos, bool ) const {
+Int32 Text::findCharacterFromPos( const Vector2i& pos ) const {
 	if ( NULL == mFont || mString.empty() )
 		return 0;
 
@@ -588,6 +592,14 @@ const Vector2f& Text::getShadowOffset() const {
 
 void Text::setShadowOffset( const Vector2f& shadowOffset ) {
 	mShadowOffset = shadowOffset;
+}
+
+const std::vector<Uint32>& Text::getLinesStartIndex() const {
+	return mLinesStartIndex;
+}
+
+const std::vector<Rectf>& Text::getGlyphCache() const {
+	return mGlyphCache;
 }
 
 Rectf Text::getLocalBounds() {

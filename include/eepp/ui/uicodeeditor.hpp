@@ -671,8 +671,16 @@ class EE_API UICodeEditor : public UIWidget, public TextDocument::Client {
 	MinimapConfig mMinimapConfig;
 	Int64 mMinimapScrollOffset{ 0 };
 	struct TextLine {
-		Text text;
+		std::vector<Text> text;
+		std::vector<std::string> type;
 		String::HashType hash;
+		Uint64 signature;
+
+		Float getTextWidth();
+
+		Vector2f findCharacterPos( const Int64& index );
+
+		Int32 findCharacterFromPos( const Vector2i& pos );
 	};
 	mutable std::map<Int64, TextLine> mTextCache;
 	Tools::UIDocFindReplace* mFindReplace{ nullptr };
@@ -838,7 +846,7 @@ class EE_API UICodeEditor : public UIWidget, public TextDocument::Client {
 
 	bool checkAutoCloseXMLTag( const String& text );
 
-	Text& getLineText( const Int64& lineNumber ) const;
+	TextLine& getLineText( const Int64& lineNumber ) const;
 
 	void updateLineCache( const Int64& lineIndex );
 

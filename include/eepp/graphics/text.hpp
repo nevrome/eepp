@@ -62,6 +62,8 @@ class EE_API Text {
 
 	String& getString();
 
+	size_t getStringLength() const;
+
 	Font* getFont() const;
 
 	unsigned int getCharacterSize() const;
@@ -125,7 +127,7 @@ class EE_API Text {
 	void setStyleConfig( const FontStyleConfig& styleConfig );
 
 	/** Finds the closest cursor position to the point position */
-	Int32 findCharacterFromPos( const Vector2i& pos, bool returnNearest = true ) const;
+	Int32 findCharacterFromPos( const Vector2i& pos ) const;
 
 	/** Simulates a selection request and return the initial and end cursor position when the
 	 * selection worked. Otherwise both parameters will be -1. */
@@ -164,6 +166,10 @@ class EE_API Text {
 	const Vector2f& getShadowOffset() const;
 
 	void setShadowOffset( const Vector2f& shadowOffset );
+
+	const std::vector<Uint32>& getLinesStartIndex() const;
+
+	const std::vector<Rectf>& getGlyphCache() const;
 
   protected:
 	struct VertexCoords {
