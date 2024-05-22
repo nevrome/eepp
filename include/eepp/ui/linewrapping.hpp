@@ -45,6 +45,7 @@ class EE_API LineWrapping {
 	struct VisualLine {
 		Int64 visualIndex{ 0 };
 		Float paddingStart{ 0 };
+		bool visible{ true };
 		std::vector<TextPosition> visualLines;
 	};
 
@@ -91,6 +92,10 @@ class EE_API LineWrapping {
 
 	Float getLineOffset( Int64 docIdx ) const;
 
+	Int64 getVisualIndex( Int64 docIdx ) const;
+
+	Float getLineYOffset( Int64 docIdx, Float lineHeight ) const;
+
 	Int64 toWrappedIndex( Int64 docIdx, bool retLast = false ) const;
 
 	bool isWrappedLine( Int64 docIdx ) const;
@@ -112,6 +117,25 @@ class EE_API LineWrapping {
 
 	void clear();
 
+	Int64 getHiddenLinesCount() const;
+
+	bool isFolded( Int64 docIdx ) const;
+
+	bool isLineHidden( Int64 docIdx ) const;
+
+	bool isNextLineHidden( Int64 docIdx ) const;
+
+	void addFoldRegion( TextRange region );
+
+	bool isFoldingRegionInLine( Int64 docIdx );
+
+	void foldRegion( Int64 foldDocIdx );
+
+	void unfoldRegion( Int64 foldDocIdx );
+
+	std::pair<Uint64, Uint64> getVisibleLineRange( Int64 startVisualLine, Int64 viewLineCount,
+												   bool visualIndexes ) const;
+
   protected:
 	std::shared_ptr<TextDocument> mDoc;
 	FontStyleConfig mFontStyle;
@@ -120,8 +144,27 @@ class EE_API LineWrapping {
 	std::vector<TextPosition> mWrappedLines;
 	std::vector<Float> mWrappedLinesOffset;
 	std::vector<Int64> mWrappedLineToIndex;
+	std::vector<bool> mLinesHidden;
+	UnorderedMap<Int64, TextRange> mFoldingRegions;
+	std::vector<TextRange> mFoldedRegions;
+	Int64 mHiddenLinesCount{ 0 };
+	Int64 mHiddenVisualLinesCount{ 0 };
 	bool mPendingReconstruction{ false };
 	bool mUnderConstruction{ false };
+
+	Int64 getVisualIndexFromWrappedIndex( Int64 wrappedIndex ) const;
+
+	Int64 foldRegionVisualLength( Int64 fromDocIdx, Int64 toDocIdx ) const;
+
+	Int64 foldRegionVisualLength( const TextRange& fold ) const;
+
+	void changeVisibility( Int64 fromDocIdx, Int64 toDocIdx, bool visible );
+
+	void removeFoldedRegion( const TextRange& region );
+
+	void shiftFoldingRegions( Int64 fromLine, Int64 numLines );
+
+	void recalculateHiddenLines();
 };
 
 }} // namespace EE::UI

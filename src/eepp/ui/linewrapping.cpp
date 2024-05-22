@@ -184,6 +184,30 @@ Float LineWrapping::getLineOffset( Int64 docIdx ) const {
 		docIdx, 0ll, eemax( static_cast<Int64>( mWrappedLinesOffset.size() ) - 1, 0ll ) )];
 }
 
+Int64 LineWrapping::getVisualIndexFromWrappedIndex( Int64 wrappedIndex ) const {
+	Int64 idx = wrappedIndex;
+	if ( mFoldedRegions.empty() )
+		return idx;
+	Int64 docIdx = mWrappedLines[wrappedIndex].line();
+	for ( const auto& fold : mFoldedRegions ) {
+		if ( fold.start().line() < docIdx ) {
+			idx -=
+				foldRegionVisualLength( fold.start().line(), eemin( fold.end().line(), docIdx ) );
+		} else if ( fold.start().line() > docIdx ) {
+			break;
+		}
+	}
+	return idx;
+}
+
+Int64 LineWrapping::getVisualIndex( Int64 docIdx ) const {
+	return getVisualIndexFromWrappedIndex( toWrappedIndex( docIdx ) );
+}
+
+Float LineWrapping::getLineYOffset( Int64 docIdx, Float lineHeight ) const {
+	return getVisualIndex( docIdx ) * lineHeight;
+}
+
 void LineWrapping::setConfig( Config config ) {
 	if ( config != mConfig ) {
 		mConfig = std::move( config );
@@ -205,6 +229,7 @@ void LineWrapping::reconstructBreaks() {
 	mWrappedLines.clear();
 	mWrappedLineToIndex.clear();
 	mWrappedLinesOffset.clear();
+	mLinesHidden.clear();
 
 	if ( mConfig.mode == LineWrapMode::NoWrap )
 		return;
@@ -212,11 +237,13 @@ void LineWrapping::reconstructBreaks() {
 	Int64 linesCount = mDoc->linesCount();
 	mWrappedLines.reserve( linesCount );
 	mWrappedLinesOffset.reserve( linesCount );
+	mLinesHidden.reserve( linesCount );
 
 	for ( auto i = 0; i < linesCount; i++ ) {
 		auto lb = computeLineBreaks( *mDoc, i, mFontStyle, mMaxWidth, mConfig.mode,
 									 mConfig.keepIndentation, mConfig.tabWidth );
 		mWrappedLinesOffset.emplace_back( lb.paddingStart );
+		mLinesHidden.emplace_back( isFolded( i ) );
 		for ( const auto& col : lb.wraps )
 			mWrappedLines.emplace_back( i, col );
 	}
@@ -267,7 +294,7 @@ LineWrapping::VisualLine LineWrapping::getVisualLine( Int64 docIdx ) const {
 	VisualLine line;
 	if ( mConfig.mode == LineWrapMode::NoWrap ) {
 		line.visualLines.push_back( { docIdx, 0 } );
-		line.visualIndex = docIdx;
+		line.visualIndex = getVisualIndex( docIdx );
 		return line;
 	}
 	Int64 fromIdx = toWrappedIndex( docIdx );
@@ -275,8 +302,9 @@ LineWrapping::VisualLine LineWrapping::getVisualLine( Int64 docIdx ) const {
 	line.visualLines.reserve( toIdx - fromIdx + 1 );
 	for ( Int64 i = fromIdx; i <= toIdx; i++ )
 		line.visualLines.emplace_back( mWrappedLines[i] );
-	line.visualIndex = fromIdx;
+	line.visualIndex = getVisualIndexFromWrappedIndex( fromIdx );
 	line.paddingStart = mWrappedLinesOffset[docIdx];
+	line.visible = mLinesHidden[docIdx];
 	return line;
 }
 
@@ -284,7 +312,7 @@ LineWrapping::VisualLineInfo LineWrapping::getVisualLineInfo( const TextPosition
 															  bool allowVisualLineEnd ) const {
 	if ( mConfig.mode == LineWrapMode::NoWrap ) {
 		LineWrapping::VisualLineInfo info;
-		info.visualIndex = pos.line();
+		info.visualIndex = getVisualIndex( pos.line() );
 		info.range = mDoc->getLineRange( pos.line() );
 		return info;
 	}
@@ -297,13 +325,13 @@ LineWrapping::VisualLineInfo LineWrapping::getVisualLineInfo( const TextPosition
 						  ? mWrappedLines[i + 1].column() - ( allowVisualLineEnd ? 0 : 1 )
 						  : mDoc->line( pos.line() ).size();
 		if ( pos.column() >= fromCol && pos.column() <= toCol ) {
-			info.visualIndex = i;
+			info.visualIndex = getVisualIndexFromWrappedIndex( i );
 			info.range = { { pos.line(), fromCol }, { pos.line(), toCol } };
 			return info;
 		}
 	}
 	eeASSERT( toIdx >= 0 );
-	info.visualIndex = toIdx;
+	info.visualIndex = getVisualIndexFromWrappedIndex( toIdx );
 	info.range = { { pos.line(), mWrappedLines[toIdx].column() },
 				   mDoc->endOfLine( { pos.line(), 0ll } ) };
 	return info;
@@ -346,6 +374,9 @@ void LineWrapping::clear() {
 	mWrappedLines.clear();
 	mWrappedLineToIndex.clear();
 	mWrappedLinesOffset.clear();
+	mLinesHidden.clear();
+	mFoldingRegions.clear();
+	mFoldedRegions.clear();
 }
 
 void LineWrapping::updateBreaks( Int64 fromLine, Int64 toLine, Int64 numLines ) {
@@ -362,11 +393,16 @@ void LineWrapping::updateBreaks( Int64 fromLine, Int64 toLine, Int64 numLines ) 
 	mWrappedLinesOffset.erase( mWrappedLinesOffset.begin() + fromLine,
 							   mWrappedLinesOffset.begin() + toLine + 1 );
 
+	// Remove old line visibility
+	mLinesHidden.erase( mLinesHidden.begin() + fromLine, mLinesHidden.begin() + toLine + 1 );
+
 	// Shift the line numbers
 	if ( numLines != 0 ) {
 		Int64 wrappedLines = mWrappedLines.size();
 		for ( Int64 i = oldIdxFrom; i < wrappedLines; i++ )
 			mWrappedLines[i].setLine( mWrappedLines[i].line() + numLines );
+
+		shiftFoldingRegions( fromLine, numLines );
 	}
 
 	// Recompute line breaks
@@ -376,6 +412,7 @@ void LineWrapping::updateBreaks( Int64 fromLine, Int64 toLine, Int64 numLines ) 
 		auto lb = computeLineBreaks( *mDoc, i, mFontStyle, mMaxWidth, mConfig.mode,
 									 mConfig.keepIndentation, mConfig.tabWidth );
 		mWrappedLinesOffset.insert( mWrappedLinesOffset.begin() + i, lb.paddingStart );
+		mLinesHidden.insert( mLinesHidden.begin() + i, isFolded( i ) );
 		for ( const auto& col : lb.wraps ) {
 			mWrappedLines.insert( mWrappedLines.begin() + idxOffset, { i, col } );
 			idxOffset++;
@@ -393,6 +430,8 @@ void LineWrapping::updateBreaks( Int64 fromLine, Int64 toLine, Int64 numLines ) 
 		}
 	}
 	mWrappedLineToIndex.resize( mDoc->linesCount() );
+
+	recalculateHiddenLines();
 
 #ifdef EE_DEBUG
 	if ( mConfig.keepIndentation ) {
@@ -419,7 +458,151 @@ void LineWrapping::updateBreaks( Int64 fromLine, Int64 toLine, Int64 numLines ) 
 }
 
 size_t LineWrapping::getTotalLines() const {
-	return mConfig.mode == LineWrapMode::NoWrap ? mDoc->linesCount() : mWrappedLines.size();
+	return mConfig.mode == LineWrapMode::NoWrap ? mDoc->linesCount() - mHiddenLinesCount
+												: mWrappedLines.size() - mHiddenVisualLinesCount;
+}
+
+std::pair<Uint64, Uint64> LineWrapping::getVisibleLineRange( Int64 startVisualLine,
+															 Int64 viewLineCount,
+															 bool visualIndexes ) const {
+	if ( mFoldedRegions.empty() ) {
+		if ( isWrapEnabled() && !visualIndexes ) {
+			return std::make_pair<Uint64, Uint64>(
+				(Uint64)getDocumentLine( startVisualLine ).line(),
+				(Uint64)getDocumentLine( startVisualLine + viewLineCount ).line() );
+		}
+		return std::make_pair<Uint64, Uint64>(
+			(Uint64)startVisualLine,
+			eemin( (Uint64)( startVisualLine + viewLineCount ),
+				   (Uint64)( visualIndexes ? getTotalLines() - 1 : mDoc->linesCount() - 1 ) ) );
+	}
+	if ( isWrapEnabled() && visualIndexes ) {
+		Int64 startDocIdx = getDocumentLine( startVisualLine ).line();
+		Int64 viewLineLeft = viewLineCount;
+		Int64 linesCount = mWrappedLines.size();
+		for ( Int64 i = startDocIdx + 1; i < linesCount; i++ ) {
+			if ( isLineHidden( mWrappedLines[i].line() ) )
+				continue;
+			viewLineLeft--;
+			if ( viewLineLeft == 0 )
+				return { startDocIdx, getDocumentLine( i ).line() };
+		}
+		return { startDocIdx, mWrappedLines[mWrappedLines.size() - 1].line() };
+	}
+	Int64 startDocIdx = startVisualLine;
+	Int64 viewLineLeft = viewLineCount;
+	Int64 linesCount = mDoc->linesCount();
+	for ( Int64 i = startDocIdx + 1; i < linesCount; i++ ) {
+		if ( isLineHidden( startDocIdx ) )
+			continue;
+		viewLineLeft--;
+		if ( viewLineLeft == 0 )
+			return { startDocIdx, i };
+	}
+	return { startDocIdx, linesCount - 1 };
+}
+
+bool LineWrapping::isNextLineHidden( Int64 docIdx ) const {
+	return !mLinesHidden.empty() && docIdx >= 0 &&
+				   docIdx + 1 < static_cast<Int64>( mLinesHidden.size() )
+			   ? mLinesHidden[docIdx + 1]
+			   : false;
+}
+
+void LineWrapping::addFoldRegion( TextRange region ) {
+	region.normalize();
+	mFoldingRegions[region.start().line()] = std::move( region );
+}
+
+bool LineWrapping::isFoldingRegionInLine( Int64 docIdx ) {
+	auto foldRegionIt = mFoldingRegions.find( docIdx );
+	return foldRegionIt != mFoldingRegions.end();
+}
+
+void LineWrapping::foldRegion( Int64 foldDocIdx ) {
+	auto foldRegionIt = mFoldingRegions.find( foldDocIdx );
+	if ( foldRegionIt == mFoldingRegions.end() )
+		return;
+	Int64 toDocIdx = foldRegionIt->second.end().line();
+	mHiddenLinesCount += foldRegionIt->second.height();
+	mHiddenVisualLinesCount += foldRegionVisualLength( foldDocIdx, toDocIdx );
+	changeVisibility( foldDocIdx, toDocIdx, true );
+	mFoldedRegions.push_back( foldRegionIt->second );
+	std::sort( mFoldedRegions.begin(), mFoldedRegions.end() );
+}
+
+void LineWrapping::unfoldRegion( Int64 foldDocIdx ) {
+	auto foldRegionIt = mFoldingRegions.find( foldDocIdx );
+	if ( foldRegionIt == mFoldingRegions.end() )
+		return;
+	Int64 toDocIdx = foldRegionIt->second.end().line();
+	mHiddenLinesCount -= foldRegionIt->second.height();
+	mHiddenVisualLinesCount -= foldRegionVisualLength( foldDocIdx, toDocIdx );
+	changeVisibility( foldDocIdx, toDocIdx, true );
+	removeFoldedRegion( foldRegionIt->second );
+}
+
+Int64 LineWrapping::foldRegionVisualLength( Int64 fromDocIdx, Int64 toDocIdx ) const {
+	Int64 startIdx = toWrappedIndex( fromDocIdx );
+	Int64 endIdx = toWrappedIndex( toDocIdx, true );
+	return endIdx - startIdx + 1;
+}
+
+Int64 LineWrapping::foldRegionVisualLength( const TextRange& fold ) const {
+	return foldRegionVisualLength( fold.start().line(), fold.end().line() );
+}
+
+void LineWrapping::changeVisibility( Int64 fromDocIdx, Int64 toDocIdx, bool visible ) {
+	for ( Int64 i = fromDocIdx; i <= toDocIdx; i++ )
+		mLinesHidden[i] = !visible;
+}
+
+void LineWrapping::removeFoldedRegion( const TextRange& region ) {
+	auto found = std::find( mFoldedRegions.begin(), mFoldedRegions.end(), region );
+	if ( found != mFoldedRegions.end() )
+		mFoldedRegions.erase( found );
+}
+
+Int64 LineWrapping::getHiddenLinesCount() const {
+	return mHiddenLinesCount;
+}
+
+bool LineWrapping::isFolded( Int64 docIdx ) const {
+	return std::any_of(
+		mFoldedRegions.begin(), mFoldedRegions.end(),
+		[docIdx]( const TextRange& region ) { return region.containsLine( docIdx ); } );
+}
+
+bool LineWrapping::isLineHidden( Int64 docIdx ) const {
+	return !mLinesHidden.empty() && docIdx >= 0 &&
+				   docIdx < static_cast<Int64>( mLinesHidden.size() )
+			   ? mLinesHidden[docIdx]
+			   : false;
+}
+
+void LineWrapping::shiftFoldingRegions( Int64 fromLine, Int64 numLines ) {
+	for ( auto& [_, region] : mFoldingRegions ) {
+		if ( region.start().line() >= fromLine ) {
+			region.start().setLine( region.start().line() + numLines );
+			region.end().setLine( region.end().line() + numLines );
+		}
+	}
+	for ( auto& region : mFoldedRegions ) {
+		if ( region.start().line() >= fromLine ) {
+			region.start().setLine( region.start().line() + numLines );
+			region.end().setLine( region.end().line() + numLines );
+		}
+	}
+}
+
+void LineWrapping::recalculateHiddenLines() {
+	mHiddenLinesCount = 0;
+	mHiddenVisualLinesCount = 0;
+	for ( auto& region : mFoldedRegions ) {
+		mHiddenLinesCount += region.height();
+		mHiddenVisualLinesCount +=
+			foldRegionVisualLength( region.start().line(), region.end().line() );
+	}
 }
 
 }} // namespace EE::UI

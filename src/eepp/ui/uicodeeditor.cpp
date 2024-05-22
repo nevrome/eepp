@@ -1956,15 +1956,9 @@ void UICodeEditor::onDocumentDirtyOnFileSystem( TextDocument* doc ) {
 
 std::pair<Uint64, Uint64> UICodeEditor::getVisibleLineRange( bool visualIndexes ) const {
 	Float lineHeight = getLineHeight();
-	Int64 minLine = eemax( 0.f, eefloor( mScroll.y / lineHeight ) );
-	Int64 maxLine = eemin( eemax( getTotalVisibleLines() - 1.f, 0.f ),
-						   eefloor( ( mSize.getHeight() + mScroll.y ) / lineHeight ) + 1 );
-	if ( !visualIndexes && mLineWrapping.isWrapEnabled() ) {
-		return std::make_pair<Uint64, Uint64>(
-			(Uint64)mLineWrapping.getDocumentLine( minLine ).line(),
-			(Uint64)mLineWrapping.getDocumentLine( maxLine ).line() );
-	}
-	return std::make_pair<Uint64, Uint64>( (Uint64)minLine, (Uint64)maxLine );
+	Int64 minVisibleLine = eemax( 0.f, eefloor( mScroll.y / lineHeight ) );
+	Int64 visibleLineCount = eefloor( mSize.getHeight() / lineHeight ) + 1;
+	return mLineWrapping.getVisibleLineRange( minVisibleLine, visibleLineCount, visualIndexes );
 }
 
 TextRange UICodeEditor::getVisibleRange() const {
@@ -1972,7 +1966,7 @@ TextRange UICodeEditor::getVisibleRange() const {
 	return mDoc->sanitizeRange( TextRange(
 		TextPosition(
 			visibleLineRange.first,
-			mDoc->endOfLine( { static_cast<Int64>( visibleLineRange.first ), 0 } ).column() ),
+			mDoc->startOfLine( { static_cast<Int64>( visibleLineRange.first ), 0 } ).column() ),
 		TextPosition(
 			visibleLineRange.second,
 			mDoc->endOfLine( { static_cast<Int64>( visibleLineRange.second ), 0 } ).column() ) ) );
@@ -1985,7 +1979,7 @@ bool UICodeEditor::isLineVisible( const Uint64& line ) const {
 
 int UICodeEditor::getVisibleLinesCount() const {
 	auto lines = getVisibleLineRange();
-	return lines.second - lines.first;
+	return lines.second - lines.first + 1;
 }
 
 const StyleSheetLength& UICodeEditor::getLineSpacing() const {
@@ -2160,7 +2154,7 @@ Vector2f UICodeEditor::getTextPositionOffset( const TextPosition& position,
 					 mFont, getCharacterSize(), mDoc->line( position.line() ).getText(),
 					 mFontStyleConfig.Style, mTabWidth, mFontStyleConfig.OutlineThickness, false )
 					 .x,
-				 lh * mLineWrapping.toWrappedIndex( position.line() ) };
+				 lh * mLineWrapping.getVisualIndex( position.line() ) };
 	}
 
 	const String& line = mDoc->line( position.line() ).getText();
@@ -2174,7 +2168,7 @@ Vector2f UICodeEditor::getTextPositionOffset( const TextPosition& position,
 			x += glyphWidth;
 		}
 	}
-	return { x, lh * mLineWrapping.toWrappedIndex( position.line() ) };
+	return { x, lh * mLineWrapping.getVisualIndex( position.line() ) };
 }
 
 template <typename StringType> size_t UICodeEditor::characterWidth( const StringType& str ) const {
