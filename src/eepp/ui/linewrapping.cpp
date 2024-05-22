@@ -200,6 +200,19 @@ Int64 LineWrapping::getVisualIndexFromWrappedIndex( Int64 wrappedIndex ) const {
 	return idx;
 }
 
+Int64 LineWrapping::getWrappedIndexFromVisibleIndex( Int64 visibleIndex ) const {
+	Int64 wlCount = mWrappedLines.size();
+	Int64 visibleCount = 0;
+	for ( Int64 i = 0; i < wlCount; i++ ) {
+		if ( isLineHidden( mWrappedLines[i].line() ) )
+			continue;
+		if ( visibleCount == visibleIndex )
+			return i;
+		visibleCount++;
+	}
+	return wlCount - 1;
+}
+
 Int64 LineWrapping::getVisualIndex( Int64 docIdx ) const {
 	return getVisualIndexFromWrappedIndex( toWrappedIndex( docIdx ) );
 }
@@ -476,18 +489,27 @@ std::pair<Uint64, Uint64> LineWrapping::getVisibleLineRange( Int64 startVisualLi
 			eemin( (Uint64)( startVisualLine + viewLineCount ),
 				   (Uint64)( visualIndexes ? getTotalLines() - 1 : mDoc->linesCount() - 1 ) ) );
 	}
-	if ( isWrapEnabled() && visualIndexes ) {
-		Int64 startDocIdx = getDocumentLine( startVisualLine ).line();
+	if ( isWrapEnabled() ) {
+		Int64 startWrappedIdx = getWrappedIndexFromVisibleIndex( startVisualLine );
 		Int64 viewLineLeft = viewLineCount;
 		Int64 linesCount = mWrappedLines.size();
-		for ( Int64 i = startDocIdx + 1; i < linesCount; i++ ) {
+		for ( Int64 i = startWrappedIdx + 1; i < linesCount; i++ ) {
 			if ( isLineHidden( mWrappedLines[i].line() ) )
 				continue;
 			viewLineLeft--;
-			if ( viewLineLeft == 0 )
-				return { startDocIdx, getDocumentLine( i ).line() };
+			if ( viewLineLeft == 0 ) {
+				if ( visualIndexes )
+					return { startWrappedIdx, i };
+				else
+					return { getDocumentLine( startWrappedIdx ).line(),
+							 getDocumentLine( i ).line() };
+			}
 		}
-		return { startDocIdx, mWrappedLines[mWrappedLines.size() - 1].line() };
+		if ( visualIndexes )
+			return { startWrappedIdx, linesCount - 1 };
+		else
+			return { getDocumentLine( startWrappedIdx ).line(),
+					 getDocumentLine( linesCount - 1 ).line() };
 	}
 	Int64 startDocIdx = startVisualLine;
 	Int64 viewLineLeft = viewLineCount;
@@ -526,7 +548,7 @@ void LineWrapping::foldRegion( Int64 foldDocIdx ) {
 	Int64 toDocIdx = foldRegionIt->second.end().line();
 	mHiddenLinesCount += foldRegionIt->second.height();
 	mHiddenVisualLinesCount += foldRegionVisualLength( foldDocIdx, toDocIdx );
-	changeVisibility( foldDocIdx, toDocIdx, true );
+	changeVisibility( foldDocIdx, toDocIdx, false );
 	mFoldedRegions.push_back( foldRegionIt->second );
 	std::sort( mFoldedRegions.begin(), mFoldedRegions.end() );
 }

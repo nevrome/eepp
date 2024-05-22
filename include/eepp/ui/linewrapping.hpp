@@ -136,6 +136,10 @@ class EE_API LineWrapping {
 	std::pair<Uint64, Uint64> getVisibleLineRange( Int64 startVisualLine, Int64 viewLineCount,
 												   bool visualIndexes ) const;
 
+	Int64 getVisualIndexFromWrappedIndex( Int64 wrappedIndex ) const;
+
+	Int64 getWrappedIndexFromVisibleIndex( Int64 visibleIndex ) const;
+
   protected:
 	std::shared_ptr<TextDocument> mDoc;
 	FontStyleConfig mFontStyle;
@@ -151,8 +155,6 @@ class EE_API LineWrapping {
 	Int64 mHiddenVisualLinesCount{ 0 };
 	bool mPendingReconstruction{ false };
 	bool mUnderConstruction{ false };
-
-	Int64 getVisualIndexFromWrappedIndex( Int64 wrappedIndex ) const;
 
 	Int64 foldRegionVisualLength( Int64 fromDocIdx, Int64 toDocIdx ) const;
 

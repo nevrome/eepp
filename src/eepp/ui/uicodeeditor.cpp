@@ -276,11 +276,11 @@ void UICodeEditor::draw() {
 			Float height = 1;
 			if ( mLineWrapping.isWrappedLine( sel.start().line() ) )
 				height = mLineWrapping.getVisualLine( sel.start().line() ).visualLines.size();
-			primitives.drawRectangle( Rectf(
-				Vector2f( startScroll.x + mScroll.x,
-						  startScroll.y +
-							  mLineWrapping.toWrappedIndex( sel.start().line() ) * lineHeight ),
-				Sizef( mSize.getWidth(), lineHeight * height ) ) );
+			primitives.drawRectangle(
+				Rectf( Vector2f( startScroll.x + mScroll.x,
+								 startScroll.y + mLineWrapping.getLineYOffset( sel.start().line(),
+																			   lineHeight ) ),
+					   Sizef( mSize.getWidth(), lineHeight * height ) ) );
 		}
 	}
 
@@ -333,10 +333,12 @@ void UICodeEditor::draw() {
 	}
 
 	for ( unsigned long i = lineRange.first; i <= lineRange.second; i++ ) {
+		if ( mLineWrapping.isLineHidden( i ) )
+			continue;
+
 		Vector2f curScroll(
-			{ startScroll.x,
-			  static_cast<float>( startScroll.y +
-								  lineHeight * (double)mLineWrapping.toWrappedIndex( i ) ) } );
+			{ startScroll.x, static_cast<float>( startScroll.y + mLineWrapping.getLineYOffset(
+																	 i, lineHeight ) ) } );
 
 		for ( auto& plugin : mPlugins )
 			plugin->drawBeforeLineText( this, i, curScroll, charSize, lineHeight );
@@ -618,6 +620,9 @@ void UICodeEditor::onDocumentLoaded() {
 	invalidateDraw();
 	invalidateLongestLineWidth();
 	invalidateLineWrapMaxWidth( true );
+
+	mLineWrapping.addFoldRegion( { { 10, 0 }, { 20, 0 } } );
+	mLineWrapping.foldRegion( 10 );
 }
 
 void UICodeEditor::onDocumentReset( TextDocument* ) {
@@ -1956,7 +1961,7 @@ void UICodeEditor::onDocumentDirtyOnFileSystem( TextDocument* doc ) {
 
 std::pair<Uint64, Uint64> UICodeEditor::getVisibleLineRange( bool visualIndexes ) const {
 	Float lineHeight = getLineHeight();
-	Int64 minVisibleLine = eemax( 0.f, eefloor( mScroll.y / lineHeight ) );
+	Int64 minVisibleLine = eemax( 0.f, eefloor( mScroll.y / lineHeight ) - 1 );
 	Int64 visibleLineCount = eefloor( mSize.getHeight() / lineHeight ) + 1;
 	return mLineWrapping.getVisibleLineRange( minVisibleLine, visibleLineCount, visualIndexes );
 }
@@ -3338,6 +3343,8 @@ void UICodeEditor::drawWordMatch( const String& text, const std::pair<int, int>&
 	primitives.setForceDraw( false );
 	primitives.setColor( Color( mSelectionMatchColor ).blendAlpha( mAlpha ) );
 	for ( auto ln = lineRange.first; ln <= lineRange.second; ln++ ) {
+		if ( mLineWrapping.isLineHidden( ln ) )
+			continue;
 		const String& line = mDoc->line( ln ).getText();
 		size_t pos = 0;
 		// Skip ridiculously long lines.
@@ -3688,6 +3695,8 @@ void UICodeEditor::drawLineNumbers( const std::pair<int, int>& lineRange,
 	Float lineOffset = getLineOffset();
 
 	for ( int i = lineRange.first; i <= lineRange.second; i++ ) {
+		if ( mLineWrapping.isLineHidden( i ) )
+			continue;
 		String pos;
 		if ( mShowLinesRelativePosition && selection.start().line() != i ) {
 			pos = String( String::toString( eeabs( i - selection.start().line() ) ) )
@@ -3698,7 +3707,7 @@ void UICodeEditor::drawLineNumbers( const std::pair<int, int>& lineRange,
 		Text::draw( pos,
 					Vector2f( screenStart.x + mLineNumberPaddingLeft,
 							  startScroll.y +
-								  lineHeight * (double)mLineWrapping.toWrappedIndex( i ) +
+								  (double)mLineWrapping.getLineYOffset( i, lineHeight ) +
 								  lineOffset ),
 					mFontStyleConfig.Font, fontSize,
 					( i >= selection.start().line() && i <= selection.end().line() )
@@ -3735,6 +3744,8 @@ void UICodeEditor::drawWhitespaces( const std::pair<int, int>& lineRange,
 	adv->setColor( color );
 	cpoint->setColor( color );
 	for ( int index = lineRange.first; index <= lineRange.second; index++ ) {
+		if ( mLineWrapping.isLineHidden( index ) )
+			continue;
 		const auto& text = mDoc->line( index ).getText();
 		if ( mLineWrapping.isWrappedLine( index ) ) {
 			for ( size_t i = 0; i < text.size(); i++ ) {
@@ -3751,8 +3762,8 @@ void UICodeEditor::drawWhitespaces( const std::pair<int, int>& lineRange,
 			}
 		} else {
 			Vector2f position(
-				{ startScroll.x,
-				  startScroll.y + lineHeight * mLineWrapping.toWrappedIndex( index ) } );
+				{ startScroll.x, startScroll.y + lineHeight * mLineWrapping.getLineYOffset(
+																  index, lineHeight ) } );
 			for ( size_t i = 0; i < text.size(); i++ ) {
 				if ( position.x + mScroll.x + ( text[i] == '\t' ? tabWidth : glyphW ) >=
 						 mScreenPos.x &&
@@ -3810,8 +3821,11 @@ void UICodeEditor::drawIndentationGuides( const std::pair<int, int>& lineRange,
 						 ? getTabWidth()
 						 : mDoc->getIndentWidth();
 	for ( int index = lineRange.first; index <= lineRange.second; index++ ) {
+		if ( mLineWrapping.isLineHidden( index ) )
+			continue;
 		Vector2f position(
-			{ startScroll.x, startScroll.y + lineHeight * mLineWrapping.toWrappedIndex( index ) } );
+			{ startScroll.x,
+			  startScroll.y + lineHeight * mLineWrapping.getLineYOffset( index, lineHeight ) } );
 		int spaces = getLineIndentGuideSpaces( *mDoc.get(), index, indentSize );
 		for ( int i = 0; i < spaces; i += indentSize )
 			p.drawRectangle( Rectf( { position.x + spaceW * i, position.y }, { w, lineHeight } ) );
@@ -3829,8 +3843,11 @@ void UICodeEditor::drawLineEndings( const std::pair<int, int>& lineRange,
 	nl->setDrawMode( GlyphDrawable::DrawMode::Text );
 	nl->setColor( color );
 	for ( int index = lineRange.first; index <= lineRange.second; index++ ) {
-		Vector2f position( { startScroll.x + getLineWidth( index ) - getGlyphWidth(),
-							 startScroll.y + lineHeight * mLineWrapping.toWrappedIndex( index ) } );
+		if ( mLineWrapping.isLineHidden( index ) )
+			continue;
+		Vector2f position(
+			{ startScroll.x + getLineWidth( index ) - getGlyphWidth(),
+			  startScroll.y + lineHeight * mLineWrapping.getLineYOffset( index, lineHeight ) } );
 		nl->draw( Vector2f( position.x, position.y ) );
 	}
 }
@@ -4260,6 +4277,9 @@ void UICodeEditor::drawMinimap( const Vector2f& start, const std::pair<Uint64, U
 	Int64 endDocIdx = mLineWrapping.getDocumentLine( endidx ).line();
 
 	for ( Int64 line = minimapStartDocLine; line <= endDocIdx; line++ ) {
+		if ( mLineWrapping.isLineHidden( line ) )
+			continue;
+
 		batchSyntaxType = &SYNTAX_NORMAL;
 		batchStart = rect.Left + gutterWidth;
 		batchWidth = 0;
